@@ -20,7 +20,7 @@ OBJ:=$(SRC:.cpp=.o)
 cquote: libcurlpp.a
 cquote: libtermbox.a
 cquote: $(OBJ)
-	$(CXX) $(CXXFLAGS) -o cquote $(OBJ) $(LDFLAGS) $(CURLPP_LIBS) -lcurlpp -ltermbox
+	$(CXX) $(CXXFLAGS) -o cquote $(OBJ) $(LDFLAGS) $(CURLPP_LIBS) -lcurlpp -ltermbox -pthread
 clean: libcurlpp_clean libtermbox_clean
 	-rm -f $(OBJ) $(OBJ:.o=.d)
 

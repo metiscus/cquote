@@ -8,6 +8,8 @@
 #include <sstream>
 #include <string>
 #include <map>
+#include <thread>
+#include <mutex>
 #include <termbox.h>
 #include <curlpp/cURLpp.hpp>
 #include <curlpp/Easy.hpp>
@@ -15,8 +17,10 @@
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
+#include <unistd.h>
 
 void do_fetch();
+void update_thread();
 
 void print_tb(const char *str, int x, int y, uint16_t fg, uint16_t bg)
 {
@@ -72,14 +76,26 @@ struct Stock
     }
 };
 
+uint32_t update_time = 5; // seconds
+
+std::mutex g_stocks_mutex;
 std::map<std::string, Stock> g_stocks;
+
+volatile bool stop = false;
 
 int main(int argc, char** argv)
 {
     (void)argc;
     (void)argv;
 
+    g_stocks["EA"]    = Stock("EA");
     g_stocks["GOOGL"] = Stock("GOOGL");
+    g_stocks["TSLA"]  = Stock("TSLA");
+    g_stocks["AMZN"]  = Stock("AMZN");
+    g_stocks["SPY"]   = Stock("SPY");
+    //g_stocks[".DJI"]   = Stock(".DJI");
+
+    std::thread update(update_thread);
 
     int ret = tb_init();
     if(ret)
@@ -90,12 +106,11 @@ int main(int argc, char** argv)
 
     // init
     tb_clear();
-    printf_tb(0, 0, TB_WHITE, TB_DEFAULT, "Current number of symbols: %d", g_stocks.size());
     do_fetch();
     tb_present();
     
     struct tb_event ev;
-    while (tb_poll_event(&ev)) {
+    while (tb_peek_event(&ev, 100) >= 0) {
         switch (ev.type) {
         case TB_EVENT_KEY:
             switch (ev.key) {
@@ -105,12 +120,14 @@ int main(int argc, char** argv)
             }
             break;
         case TB_EVENT_RESIZE:
-            //draw_all();
+            do_fetch();
             break;
         }
     }
 
 done:
+    stop = true;
+    update.join();
     tb_shutdown();
 
     return 0;
@@ -200,16 +217,54 @@ void fetch_quote(Stock& stock)
 
 void do_fetch()
 {
+    g_stocks_mutex.lock();
+
+    tb_clear();
+
     for(auto& stock : g_stocks)
     {
         fetch_quote(stock.second);
     }
 
-    printf_tb(1, 1, TB_WHITE, TB_DEFAULT, "NAME\tLAST\tCHNG\tCHNG_PCT\tOPEN\tCLOSE\t52wk Hi\t52wk Lo\tEPS  \tPE   \tVolume\tAvg Volume");
-    int row = 2;
+    printf_tb(0, 0, TB_WHITE, TB_DEFAULT, 
+        "%-8s%8s%8s%8s%8s%8s%8s%8s%8s%8s%8s",
+        "Name", "Last", "Change", "Percent", "Open", "52w Hi", "52w Lo", "EPS", "PE", "Volume", "A Volume"
+    );
+
+    int row = 1;
     for(auto& itr : g_stocks)
     {
         const Stock& stock = itr.second;
-        printf_tb(1, row++, TB_WHITE, TB_DEFAULT, "%6s\t%7.2f\t%4.2f", stock.ticker.c_str(), stock.last, stock.change);
+        
+        uint32_t fg_color = TB_WHITE;
+        if(stock.change_pct > 0.5)
+        {
+            fg_color = TB_GREEN;
+        }
+        else if(stock.change_pct < -0.5)
+        {
+            fg_color = TB_RED;
+        }
+
+        printf_tb(0, row++, fg_color, TB_DEFAULT, "%-8s%8.2f%8.2f%7.2f%%%8.2f%8.2f%8.2f%8.2f%8.2f", 
+            stock.ticker.c_str(), stock.last, stock.change, stock.change_pct, stock.open, stock.stat_52_high, stock.stat_52_low, stock.stat_eps, stock.stat_pe);
+    }
+
+    tb_present();
+
+    g_stocks_mutex.unlock();
+}
+
+void update_thread()
+{
+    while(!stop)
+    {
+        timespec ts;
+        ts.tv_sec = update_time;
+        ts.tv_nsec = 0;
+
+        do_fetch();
+
+        nanosleep(&ts, nullptr);
     }
 }
