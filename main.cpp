@@ -23,6 +23,11 @@
 #include "stock.h"
 #include "utility.h"
 
+#include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
+
+void read_config();
 void do_fetch();
 
 void print_tb(const char *str, int x, int y, uint16_t fg, uint16_t bg)
@@ -45,7 +50,7 @@ void printf_tb(int x, int y, uint16_t fg, uint16_t bg, const char *fmt, ...)
     print_tb(buf, x, y, fg, bg);
 }
 
-constexpr uint32_t update_time = 5; // seconds
+uint32_t update_time = 5; // seconds
 constexpr Property color_property = Property::ChangePercent;
 constexpr double color_threshold  = 0.5;
 
@@ -58,16 +63,14 @@ int main(int argc, char** argv)
     (void)argc;
     (void)argv;
 
-    g_exchanges["Dow"]    = Stock(".DJI");
-    g_exchanges["S&P500"] = Stock(".INX");
-    g_exchanges["NASDAQ"] = Stock(".IXIC");
+    read_config();
 
-    g_stocks["EA"]    = Stock("EA");
-    g_stocks["GOOGL"] = Stock("GOOGL");
-    g_stocks["TSLA"]  = Stock("TSLA");
-    g_stocks["AMZN"]  = Stock("AMZN");
-    g_stocks["SPY"]   = Stock("SPY");
-    g_stocks["IBM"]   = Stock("IBM");
+    //g_stocks["EA"]    = Stock("EA");
+    //g_stocks["GOOGL"] = Stock("GOOGL");
+    //g_stocks["TSLA"]  = Stock("TSLA");
+    //g_stocks["AMZN"]  = Stock("AMZN");
+    //g_stocks["SPY"]   = Stock("SPY");
+    //g_stocks["IBM"]   = Stock("IBM");
 
     int ret = tb_init();
     if(ret)
@@ -179,12 +182,6 @@ void do_fetch()
         fetch_quote(itr.second);
         const Stock& exch = itr.second;
 
-        int color = TB_WHITE;
-
-        double change_pct = exch.get(Property::ChangePercent);
-        if(change_pct > 0.0) color = TB_GREEN;
-        else color = TB_RED;
-
         char buffer[1000];
         sprintf(buffer, "%s(%.2f %.2f %.2f%%)  ", itr.first.c_str(), exch.get(Property::Last), exch.get(Property::Change), exch.get(Property::ChangePercent));
         exchange_string += buffer;
@@ -235,4 +232,94 @@ void do_fetch()
     tb_present();
 
     g_stocks_mutex.unlock();
+}
+
+void read_config()
+{
+    // Find the user home directory
+    const char* homedir = nullptr;
+    if ((homedir = getenv("HOME")) == NULL) 
+    {
+        homedir = getpwuid(getuid())->pw_dir;
+    }
+
+    // Check if the configuration file exists there
+    uint32_t bufsize = sysconf(_SC_GETPW_R_SIZE_MAX);
+    char *buffer = new char[bufsize];
+    sprintf(buffer, "%s/.cquote", homedir);
+
+    FILE *fp = fopen(buffer, "rt");
+    if(!fp)
+    {
+        // We will write a default configuration out
+        fp = fopen(buffer, "wt");
+        fprintf(stderr, buffer);
+        if(!fp)
+        {
+            exit(1);
+        }
+
+        fprintf(fp, 
+            "{\n"
+            "\t\"exchanges\" : [\n"
+            "\t\t{\"Dow\" : \".DJI\"},\n"
+            "\t\t{\"S&P500\" : \".INX\"},\n"
+            "\t\t{\"NASDAQ\" : \".IXIC\"}\n"
+            "\t],\n"
+            "\t\"stocks\" : [\n"
+            "\t\t\"EA\",\n"
+            "\t\t\"GOOGL\",\n"
+            "\t\t\"TSLA\",\n"
+            "\t\t\"AMZN\",\n"
+            "\t\t\"IBM\",\n"
+            "\t\t\"MSFT\"\n"
+            "\t],\n"
+            "\t\"update\" : 5\n"
+            "}\n"
+        );
+        fclose(fp);
+        read_config();
+        return;
+    }
+    fclose(fp);
+
+    // parse the config file here
+    using namespace rapidjson;
+    std::ifstream config (buffer);
+    std::stringstream ss;
+    ss << config.rdbuf();
+    config.close();
+
+    Document reader;
+    reader.Parse(ss.str().c_str());
+
+    // Parse exchanges
+    if(reader.HasMember("exchanges") && reader["exchanges"].IsArray())
+    {
+        const Value& a = reader["exchanges"];
+        for(uint32_t i=0; i<a.Size(); ++i)
+        {
+            const Value& exch = a[i];
+            for(Value::ConstMemberIterator itr = exch.MemberBegin(); itr != exch.MemberEnd(); ++itr)
+            {
+                g_exchanges[itr->name.GetString()] = Stock(itr->value.GetString());
+            }
+        }
+    }
+
+    // Parse stocks
+    if(reader.HasMember("stocks") && reader["stocks"].IsArray())
+    {
+        const Value& a = reader["stocks"];
+        for(uint32_t i=0; i<a.Size(); ++i)
+        {
+            const Value& exch = a[i];
+            g_stocks[exch.GetString()] = Stock(exch.GetString());
+        }
+    }
+
+    if(reader.HasMember("update") && reader["update"].IsInt())
+    {
+        update_time = reader["update"].GetInt();
+    }
 }
