@@ -18,6 +18,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 
+#include <set>
 #include "stock.h"
 #include "utility.h"
 
@@ -61,8 +62,6 @@ int main(int argc, char** argv)
     g_stocks["AMZN"]  = Stock("AMZN");
     g_stocks["SPY"]   = Stock("SPY");
     g_stocks["IBM"]   = Stock("IBM");
-    //g_stocks[".DJI"]   = Stock(".DJI");
-
 
     int ret = tb_init();
     if(ret)
@@ -159,16 +158,9 @@ void fetch_quote(Stock& stock)
         stock.set(Property::Pe, parse_float(d["pe"].GetString()));
         stock.set(Property::Dividend, parse_float(d["ldiv"].GetString()));
         stock.set(Property::Yield, parse_float(d["dy"].GetString()));
-        stock.set(Property::Shares, d["shares"].GetString());
-        stock.set(Property::Volume, d["vo"].GetString());
-        stock.set(Property::AvgVolume, d["avvo"].GetString());
-
-
-        //std::cerr<<"keyratios: "<<d.HasMember("keyratios")<<"\n";
-
-        //assert(d["keyratios"]["l"].IsFloat());
-        //printf_tb(1,3, TB_RED, TB_DEFAULT, "%s", stock.name.c_str());
-        //printf_tb(6, 3, TB_RED, TB_DEFAULT, "%7.5f", d["l"].GetFloat());
+        stock.set(Property::Shares, parse_float(d["shares"].GetString()));
+        stock.set(Property::Volume, parse_float(d["vo"].GetString()));
+        stock.set(Property::AvgVolume, parse_float(d["avvo"].GetString()));
     }
     catch ( ... )
     {
@@ -182,20 +174,22 @@ void do_fetch()
 
     tb_clear();
 
+    std::set<Stock> stocks;
     for(auto& stock : g_stocks)
     {
         fetch_quote(stock.second);
+        stocks.insert(stock.second);
     }
 
     printf_tb(0, 0, TB_WHITE, TB_DEFAULT, 
         "%-8s%8s%8s%8s%8s%8s%8s%8s%8s%8s%8s",
-        "Name", "Last", "Change", "Percent", "Open", "52w Hi", "52w Lo", "EPS", "PE", "Volume", "A Volume"
+        "Name", "Last", "Change", "Percent", "Open", "52w Hi", "52w Lo", "EPS", "PE", "Volume", "VolumeA"
     );
 
     int row = 1;
-    for(auto& itr : g_stocks)
+    for(auto& stock : stocks)
     {
-        const Stock& stock = itr.second;
+        //const Stock& stock = itr.second;
         
         uint32_t fg_color = TB_YELLOW;
         if(stock.get(Property::ChangePercent) > 0.5)
@@ -207,7 +201,7 @@ void do_fetch()
             fg_color = TB_RED;
         }
 
-        printf_tb(0, row++, fg_color, TB_DEFAULT, "%-8s%8.2f%8.2f%7.2f%%%8.2f%8.2f%8.2f%8.2f%8.2f", 
+        printf_tb(0, row++, fg_color, TB_DEFAULT, "%-8s%8.2f%8.2f%7.2f%%%8.2f%8.2f%8.2f%8.2f%8.2f%8.2lf%8.2lf", 
             stock.get_ticker().c_str(),
             stock.get(Property::Last), 
             stock.get(Property::Change),
@@ -216,7 +210,9 @@ void do_fetch()
             stock.get(Property::High52),
             stock.get(Property::Low52),
             stock.get(Property::Eps),
-            stock.get(Property::Pe)
+            stock.get(Property::Pe),
+            stock.get(Property::Volume) / 100000.0,
+            stock.get(Property::AvgVolume) / 100000.0
         );
     }
 

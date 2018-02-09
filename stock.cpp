@@ -59,7 +59,14 @@ Stock::Stock(const std::string& ticker, bool is_exchange)
 
 bool Stock::operator<(const Stock& r) const
 {
-    return get(sort_) < r.get(sort_);
+    switch(sort_)
+    {
+        case Property::Ticker: return get_ticker() < r.get_ticker(); break;
+        case Property::Name: return get_name() < r.get_name(); break;
+        default:
+            return get(sort_) < r.get(sort_);
+            break;
+    }
 }
 
 bool Stock::is_valid() const
