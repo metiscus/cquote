@@ -192,8 +192,8 @@ void fetch_quote(Stock& stock)
         stock.open            = parse_float(d["op"].GetString());
         stock.high            = parse_float(d["hi"].GetString());
         stock.low             = parse_float(d["lo"].GetString());
-        stock.stat_52_low     = parse_float(d["hi52"].GetString());
-        stock.stat_52_high    = parse_float(d["lo52"].GetString());
+        stock.stat_52_low     = parse_float(d["lo52"].GetString());
+        stock.stat_52_high    = parse_float(d["hi52"].GetString());
         stock.stat_eps        = parse_float(d["eps"].GetString());
         stock.stat_pe         = parse_float(d["pe"].GetString());
         stock.stat_dividend   = parse_float(d["ldiv"].GetString());
