@@ -1,7 +1,9 @@
 #include "stock.h"
 #include <cassert>
 
-Property Stock::sort_ = Property::Ticker;
+//Property Stock::sort_ = Property::Ticker;
+Property Stock::sort_ = Property::Last;
+bool Stock::sort_forward_ = true;
 
 const char* ToString(Property prop)
 {
@@ -33,6 +35,16 @@ void Stock::set_sort(Property property)
     sort_ = property;
 }
 
+void Stock::set_sort_mode(bool forward)
+{
+    sort_forward_ = forward;
+}
+
+void Stock::toggle_sort_mode()
+{
+    sort_forward_ = !sort_forward_;
+}
+
 Stock::Stock(const std::string& ticker, bool is_exchange)
     : is_exchange_(is_exchange)
     , is_valid_(false)
@@ -59,14 +71,18 @@ Stock::Stock(const std::string& ticker, bool is_exchange)
 
 bool Stock::operator<(const Stock& r) const
 {
+    bool ret = false;
     switch(sort_)
     {
-        case Property::Ticker: return get_ticker() < r.get_ticker(); break;
-        case Property::Name: return get_name() < r.get_name(); break;
+        case Property::Ticker: ret = get_ticker() < r.get_ticker(); break;
+        case Property::Name: ret =  get_name() < r.get_name(); break;
         default:
-            return get(sort_) < r.get(sort_);
+            ret = get(sort_) < r.get(sort_);
             break;
     }
+
+    if(!sort_forward_) return !ret;
+    return ret;
 }
 
 bool Stock::is_valid() const

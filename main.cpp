@@ -10,6 +10,7 @@
 #include <map>
 #include <thread>
 #include <mutex>
+#include <vector>
 #include <termbox.h>
 #include <curlpp/cURLpp.hpp>
 #include <curlpp/Easy.hpp>
@@ -44,17 +45,22 @@ void printf_tb(int x, int y, uint16_t fg, uint16_t bg, const char *fmt, ...)
     print_tb(buf, x, y, fg, bg);
 }
 
-
-
-uint32_t update_time = 5; // seconds
+constexpr uint32_t update_time = 5; // seconds
+constexpr Property color_property = Property::ChangePercent;
+constexpr double color_threshold  = 0.5;
 
 std::mutex g_stocks_mutex;
 std::map<std::string, Stock> g_stocks;
+std::map<std::string, Stock> g_exchanges;
 
 int main(int argc, char** argv)
 {
     (void)argc;
     (void)argv;
+
+    g_exchanges["Dow"]    = Stock(".DJI");
+    g_exchanges["S&P500"] = Stock(".INX");
+    g_exchanges["NASDAQ"] = Stock(".IXIC");
 
     g_stocks["EA"]    = Stock("EA");
     g_stocks["GOOGL"] = Stock("GOOGL");
@@ -85,10 +91,13 @@ int main(int argc, char** argv)
                     case TB_KEY_ESC:
                         goto done;
                         break;
-                    }
+                    case TB_KEY_CTRL_R:
+                        Stock::toggle_sort_mode();
+                        break;
+                }
                 break;
             case TB_EVENT_RESIZE:
-                do_fetch();
+                //do_fetch();
                 break;
         }
 
@@ -111,10 +120,6 @@ void fetch_quote(Stock& stock)
         query += stock.get_ticker();
         query += "&output=json";
 
-        //std::cerr<<"query: "<<query<<"\n";
-
-        //printf_tb(1, 1, TB_YELLOW, TB_DEFAULT, "%s", query.c_str());
-
         // perform the query
         curlpp::options::Url url(query);
         curlpp::Easy myRequest;
@@ -126,21 +131,15 @@ void fetch_quote(Stock& stock)
         myRequest.setOpt(ws);
         myRequest.perform();
         std::string json_reply = ss.str();
-        //std::cout<<json_reply<<"\n";
+
         // but for some reason, what we get back isnt valid json....
         // need to remove the first two lines and the trailing ]
-
         json_reply = json_reply.substr(5, json_reply.length()-7);
-        //std::cout<<json_reply<<"\n";
+
 
         // parse the query
         Document d;
         d.Parse(json_reply.c_str());
-
-        //StringBuffer sb;
-        //PrettyWriter<StringBuffer> writer(sb);
-        //d.Accept(writer);    // Accept() traverses the DOM and generates Handler events.
-        //std::cout<<sb.GetString()<<"\n";
 
         // update the entry
         stock.set_valid();
@@ -173,6 +172,25 @@ void do_fetch()
     g_stocks_mutex.lock();
 
     tb_clear();
+    // query the various exchanges
+    std::string exchange_string = "";
+    for(auto& itr : g_exchanges)
+    {
+        fetch_quote(itr.second);
+        const Stock& exch = itr.second;
+
+        int color = TB_WHITE;
+
+        double change_pct = exch.get(Property::ChangePercent);
+        if(change_pct > 0.0) color = TB_GREEN;
+        else color = TB_RED;
+
+        char buffer[1000];
+        sprintf(buffer, "%s(%.2f %.2f %.2f%%)  ", itr.first.c_str(), exch.get(Property::Last), exch.get(Property::Change), exch.get(Property::ChangePercent));
+        exchange_string += buffer;
+    }
+
+    printf_tb(0, 0, TB_YELLOW, TB_DEFAULT, exchange_string.c_str());
 
     std::set<Stock> stocks;
     for(auto& stock : g_stocks)
@@ -181,22 +199,20 @@ void do_fetch()
         stocks.insert(stock.second);
     }
 
-    printf_tb(0, 0, TB_WHITE, TB_DEFAULT, 
+    printf_tb(0, 1, TB_YELLOW, TB_DEFAULT, 
         "%-8s%8s%8s%8s%8s%8s%8s%8s%8s%8s%8s",
         "Name", "Last", "Change", "Percent", "Open", "52w Hi", "52w Lo", "EPS", "PE", "Volume", "VolumeA"
     );
 
-    int row = 1;
+    int row = 2;
     for(auto& stock : stocks)
-    {
-        //const Stock& stock = itr.second;
-        
+    {     
         uint32_t fg_color = TB_YELLOW;
-        if(stock.get(Property::ChangePercent) > 0.5)
+        if(stock.get(color_property) > color_threshold)
         {
             fg_color = TB_GREEN;
         }
-        else if(stock.get(Property::ChangePercent) < -0.5)
+        else if(stock.get(color_property) < -color_threshold)
         {
             fg_color = TB_RED;
         }

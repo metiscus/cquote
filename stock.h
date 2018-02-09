@@ -31,6 +31,7 @@ const char* ToString(Property prop);
 class Stock
 {
     static Property sort_;
+    static bool sort_forward_;
 
     bool is_exchange_;
     bool is_valid_;
@@ -42,6 +43,9 @@ class Stock
 public:
     Stock(const std::string& ticker = "", bool is_exchange = false);
     static void set_sort(Property property);
+    static void set_sort_mode(bool forward);
+    static void toggle_sort_mode();
+
     bool operator<(const Stock& r) const;
 
     bool is_valid() const;
