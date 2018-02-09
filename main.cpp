@@ -17,10 +17,11 @@
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
-#include <unistd.h>
+
+#include "stock.h"
+#include "utility.h"
 
 void do_fetch();
-void update_thread();
 
 void print_tb(const char *str, int x, int y, uint16_t fg, uint16_t bg)
 {
@@ -42,46 +43,12 @@ void printf_tb(int x, int y, uint16_t fg, uint16_t bg, const char *fmt, ...)
     print_tb(buf, x, y, fg, bg);
 }
 
-struct Stock
-{
-    bool is_exchange;
-    bool is_valid;
-    std::string ticker;
-    std::string name;
-    std::string time;
-    std::string exchange;
-    float last;
-    float change;
-    float change_pct;
-    float open;
-    float low;
-    float high;
-    float stat_52_low;
-    float stat_52_high;
-    float stat_eps;
-    float stat_pe;
-    float stat_dividend;
-    float stat_yield;
-    //float stat_cap;
-    std::string stat_shares;
-    std::string stat_volume;
-    std::string stat_avg_volume;
 
-    Stock(const std::string& ticker_ = "")
-        : is_exchange(false)
-        , is_valid(false)
-        , ticker(ticker_)
-    {
-        ;
-    }
-};
 
 uint32_t update_time = 5; // seconds
 
 std::mutex g_stocks_mutex;
 std::map<std::string, Stock> g_stocks;
-
-volatile bool stop = false;
 
 int main(int argc, char** argv)
 {
@@ -93,9 +60,9 @@ int main(int argc, char** argv)
     g_stocks["TSLA"]  = Stock("TSLA");
     g_stocks["AMZN"]  = Stock("AMZN");
     g_stocks["SPY"]   = Stock("SPY");
+    g_stocks["IBM"]   = Stock("IBM");
     //g_stocks[".DJI"]   = Stock(".DJI");
 
-    std::thread update(update_thread);
 
     int ret = tb_init();
     if(ret)
@@ -110,34 +77,29 @@ int main(int argc, char** argv)
     tb_present();
     
     struct tb_event ev;
-    while (tb_peek_event(&ev, 100) >= 0) {
-        switch (ev.type) {
-        case TB_EVENT_KEY:
-            switch (ev.key) {
-            case TB_KEY_ESC:
-                goto done;
+    while (tb_peek_event(&ev, 1000 * update_time) >= 0) 
+    {
+        switch (ev.type) 
+        {
+            case TB_EVENT_KEY:
+                switch (ev.key) {
+                    case TB_KEY_ESC:
+                        goto done;
+                        break;
+                    }
                 break;
-            }
-            break;
-        case TB_EVENT_RESIZE:
-            do_fetch();
-            break;
+            case TB_EVENT_RESIZE:
+                do_fetch();
+                break;
         }
+
+        do_fetch();
     }
 
 done:
-    stop = true;
-    update.join();
     tb_shutdown();
 
     return 0;
-}
-
-float parse_float(const std::string& str)
-{
-    std::string s = str;
-    s.erase(std::remove(s.begin(), s.end(), ','), s.end());
-    return atof(s.c_str());
 }
 
 void fetch_quote(Stock& stock)
@@ -145,10 +107,9 @@ void fetch_quote(Stock& stock)
     using namespace rapidjson;
 
     try {
-
         // build the query
         std::string query = "https://finance.google.com/finance?q=";
-        query += stock.ticker;
+        query += stock.get_ticker();
         query += "&output=json";
 
         //std::cerr<<"query: "<<query<<"\n";
@@ -183,24 +144,24 @@ void fetch_quote(Stock& stock)
         //std::cout<<sb.GetString()<<"\n";
 
         // update the entry
-        stock.is_valid = true;
-        stock.name            = d["name"].GetString();
-        stock.exchange        = d["exchange"].GetString();
-        stock.last            = parse_float(d["l"].GetString());
-        stock.change          = parse_float(d["c"].GetString());
-        stock.change_pct      = parse_float(d["cp"].GetString());
-        stock.open            = parse_float(d["op"].GetString());
-        stock.high            = parse_float(d["hi"].GetString());
-        stock.low             = parse_float(d["lo"].GetString());
-        stock.stat_52_low     = parse_float(d["lo52"].GetString());
-        stock.stat_52_high    = parse_float(d["hi52"].GetString());
-        stock.stat_eps        = parse_float(d["eps"].GetString());
-        stock.stat_pe         = parse_float(d["pe"].GetString());
-        stock.stat_dividend   = parse_float(d["ldiv"].GetString());
-        stock.stat_yield      = parse_float(d["dy"].GetString());
-        stock.stat_shares     = d["shares"].GetString();
-        stock.stat_volume     = d["vo"].GetString();
-        stock.stat_avg_volume = d["avvo"].GetString();
+        stock.set_valid();
+        stock.set(Property::Name, d["name"].GetString());
+        stock.set(Property::Exchange, d["exchange"].GetString());
+        stock.set(Property::Last, parse_float(d["l"].GetString()));
+        stock.set(Property::Change, parse_float(d["c"].GetString()));
+        stock.set(Property::ChangePercent, parse_float(d["cp"].GetString()));
+        stock.set(Property::Open, parse_float(d["op"].GetString()));
+        stock.set(Property::High, parse_float(d["hi"].GetString()));
+        stock.set(Property::Low, parse_float(d["lo"].GetString()));
+        stock.set(Property::Low52, parse_float(d["lo52"].GetString()));
+        stock.set(Property::High52, parse_float(d["hi52"].GetString()));
+        stock.set(Property::Eps, parse_float(d["eps"].GetString()));
+        stock.set(Property::Pe, parse_float(d["pe"].GetString()));
+        stock.set(Property::Dividend, parse_float(d["ldiv"].GetString()));
+        stock.set(Property::Yield, parse_float(d["dy"].GetString()));
+        stock.set(Property::Shares, d["shares"].GetString());
+        stock.set(Property::Volume, d["vo"].GetString());
+        stock.set(Property::AvgVolume, d["avvo"].GetString());
 
 
         //std::cerr<<"keyratios: "<<d.HasMember("keyratios")<<"\n";
@@ -236,35 +197,30 @@ void do_fetch()
     {
         const Stock& stock = itr.second;
         
-        uint32_t fg_color = TB_WHITE;
-        if(stock.change_pct > 0.5)
+        uint32_t fg_color = TB_YELLOW;
+        if(stock.get(Property::ChangePercent) > 0.5)
         {
             fg_color = TB_GREEN;
         }
-        else if(stock.change_pct < -0.5)
+        else if(stock.get(Property::ChangePercent) < -0.5)
         {
             fg_color = TB_RED;
         }
 
         printf_tb(0, row++, fg_color, TB_DEFAULT, "%-8s%8.2f%8.2f%7.2f%%%8.2f%8.2f%8.2f%8.2f%8.2f", 
-            stock.ticker.c_str(), stock.last, stock.change, stock.change_pct, stock.open, stock.stat_52_high, stock.stat_52_low, stock.stat_eps, stock.stat_pe);
+            stock.get_ticker().c_str(),
+            stock.get(Property::Last), 
+            stock.get(Property::Change),
+            stock.get(Property::ChangePercent),
+            stock.get(Property::Open),
+            stock.get(Property::High52),
+            stock.get(Property::Low52),
+            stock.get(Property::Eps),
+            stock.get(Property::Pe)
+        );
     }
 
     tb_present();
 
     g_stocks_mutex.unlock();
-}
-
-void update_thread()
-{
-    while(!stop)
-    {
-        timespec ts;
-        ts.tv_sec = update_time;
-        ts.tv_nsec = 0;
-
-        do_fetch();
-
-        nanosleep(&ts, nullptr);
-    }
 }

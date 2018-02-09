@@ -13,7 +13,8 @@ CXXFLAGS += -Irapidjson/include
 -include termbox.mk
 
 SRC:=\
-	main.cpp
+	main.cpp\
+	stock.cpp
 
 OBJ:=$(SRC:.cpp=.o)
 
